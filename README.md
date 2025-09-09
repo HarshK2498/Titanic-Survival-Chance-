@@ -51,15 +51,6 @@ This project analyzes the Titanic dataset to predict passenger survival chances 
 5. **Correlation Heatmap**: Matrix of feature correlations with Survived.
 6. **FamilySize Impact**: Bar plot of survival by family size.
 
-## Future Improvements
-- Incorporate advanced models (e.g., XGBoost) for higher accuracy.
-- Add more features (e.g., ticket prefixes for cabin allocation).
-- Expand analysis with survival time data if available.
-
-## Contact
-- **Author**: Harsh Santosh Kandekar
-- **Email**: harshkandekar@gmail.com
-- **LinkedIn**: https://www.linkedin.com/in/harsh-kandekar-5aa427251/
 
 ## License
 This project is for educational purposes and can be used under the MIT License.
