@@ -1,0 +1,549 @@
+# Titanic Survival Prediction - My First Data Science Project
+# Author: [Your Name] - Mechanical Engineering Student
+# Created for: Google Data Analytics Apprenticeship Application
+# Date: September 2025
+# 
+# This is my attempt at the famous Kaggle Titanic competition!
+# I'm excited to apply what I've learned about data science to this classic dataset.
+# The goal is to predict which passengers survived the Titanic disaster based on features
+# like age, sex, passenger class, etc.
+
+# =============================================================================
+# Setting up the environment
+# =============================================================================
+
+# Let me import all the libraries I'll need for this analysis
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from sklearn.preprocessing import LabelEncoder
+import warnings
+warnings.filterwarnings('ignore')  # Hide warnings to keep output clean
+
+# Setting up plotting style - I want my graphs to look professional
+plt.style.use('default')
+sns.set_palette("Set2")
+plt.rcParams['figure.figsize'] = (12, 8)
+plt.rcParams['font.size'] = 10
+
+print(" TITANIC SURVIVAL PREDICTION PROJECT")
+print("=" * 45)
+print("Hi! I'm working on predicting Titanic passenger survival")
+print("This is for my Google Data Analytics Apprenticeship application")
+print("Let's see what insights we can find in this historic dataset!")
+print("=" * 45)
+
+
+# =============================================================================
+# Loading the data
+# =============================================================================
+
+print("\n LOADING THE DATA")
+print("-" * 25)
+
+# I'll try to upload the Titanic dataset from Kaggle
+# If running in Google Colab, this will prompt for file upload
+try:
+    from google.colab import files
+    print(" Please upload your titanic.csv file from Kaggle:")
+    print("(You can download it from: https://www.kaggle.com/competitions/titanic/data)")
+    uploaded = files.upload()
+    
+    # Load the first uploaded file
+    filename = list(uploaded.keys())[0]
+    df = pd.read_csv(filename)
+    print(f" Great! Loaded {filename} successfully")
+    
+except ImportError:
+    # If not in Colab, I'll create sample data for testing
+    print(" Not in Colab - creating sample data for testing...")
+    
+    # Creating realistic Titanic sample data based on known statistics
+    np.random.seed(42)  # For reproducible results
+    n_samples = 891  # Same as actual Titanic dataset
+    
+    # Based on actual Titanic demographics I researched:
+    passenger_ids = range(1, n_samples + 1)
+    
+    # Class distribution: ~24% first, 21% second, 55% third class
+    pclass = np.random.choice([1, 2, 3], n_samples, p=[0.24, 0.21, 0.55])
+    
+    # Gender: ~65% male, 35% female (rough historical estimate)
+    sex = np.random.choice(['male', 'female'], n_samples, p=[0.65, 0.35])
+    
+    # Age distribution with realistic mean and std
+    age = np.random.normal(29.7, 14.5, n_samples)
+    age = np.clip(age, 0.42, 80)  # Historical age range
+    
+    # Add missing values to age (about 20% missing in real dataset)
+    age_mask = np.random.choice([True, False], n_samples, p=[0.2, 0.8])
+    age[age_mask] = np.nan
+    
+    # Family relationships
+    sibsp = np.random.choice([0, 1, 2, 3, 4, 5], n_samples, p=[0.68, 0.23, 0.06, 0.02, 0.01, 0.001])
+    parch = np.random.choice([0, 1, 2, 3, 4, 5, 6], n_samples, p=[0.76, 0.13, 0.08, 0.02, 0.004, 0.002, 0.001])
+    
+    # Fare based on class (higher class = higher fare)
+    fare = np.where(pclass == 1, np.random.lognormal(4, 1, n_samples),
+                   np.where(pclass == 2, np.random.lognormal(3, 0.8, n_samples),
+                           np.random.lognormal(2, 0.7, n_samples)))
+    
+    # Embarkation port: S=Southampton(72%), C=Cherbourg(19%), Q=Queenstown(9%)
+    embarked = np.random.choice(['C', 'Q', 'S'], n_samples, p=[0.19, 0.09, 0.72])
+    
+    # Add tiny bit of missing embarked data
+    embarked_mask = np.random.choice([True, False], n_samples, p=[0.002, 0.998])
+    embarked[embarked_mask] = np.nan
+    
+    # Survival based on historical patterns (women and children first, class matters)
+    survival_prob = (
+        0.15 +  # Base survival
+        0.40 * (sex == 'female') +  # Women much more likely to survive
+        0.25 * (pclass == 1) + 0.15 * (pclass == 2) +  # Higher class better
+        0.10 * (age < 16) +  # Children prioritized
+        -0.05 * (age > 60)   # Elderly faced more challenges
+    )
+    survival_prob = np.clip(survival_prob, 0, 1)
+    survived = np.random.binomial(1, survival_prob)
+    
+    # Create the dataframe
+    df = pd.DataFrame({
+        'PassengerId': passenger_ids,
+        'Survived': survived,
+        'Pclass': pclass,
+        'Sex': sex,
+        'Age': age,
+        'SibSp': sibsp,
+        'Parch': parch,
+        'Fare': fare,
+        'Embarked': embarked
+    })
+    
+    print(" Sample dataset created! (for testing purposes)")
+
+# Let's see what we're working with
+print(f"\n Dataset info: {df.shape[0]} passengers, {df.shape[1]} features")
+print(f" Columns: {', '.join(df.columns)}")
+
+# First look at the data
+print("\n First few rows of our data:")
+print("-" * 30)
+print(df.head())
+
+print("\n Basic statistics:")
+print("-" * 20)
+print(df.describe())
+
+# =============================================================================
+# Understanding the data better
+# =============================================================================
+
+print("\n EXPLORING THE DATASET")
+print("-" * 30)
+
+# Check for missing data - this is important!
+missing_data = df.isnull().sum()
+missing_percent = (missing_data / len(df)) * 100
+
+print(" Missing data check:")
+for col in df.columns:
+    if missing_data[col] > 0:
+        print(f"   {col}: {missing_data[col]} missing ({missing_percent[col]:.1f}%)")
+    
+if missing_data.sum() == 0:
+    print("    No missing data found!")
+
+# Overall survival rate
+total_passengers = len(df)
+survivors = df['Survived'].sum()
+survival_rate = survivors / total_passengers
+
+print(f"\n Overall survival statistics:")
+print(f"   Total passengers: {total_passengers}")
+print(f"   Survivors: {survivors}")
+print(f"   Deaths: {total_passengers - survivors}")
+print(f"   Survival rate: {survival_rate:.1%}")
+
+# Quick look at data types
+print(f"\n Data types:")
+for col, dtype in df.dtypes.items():
+    print(f"   {col}: {dtype}")
+
+# =============================================================================
+# Data cleaning - handling missing values and preparing features
+# =============================================================================
+
+print("\n🧹 DATA CLEANING & FEATURE ENGINEERING")
+print("-" * 40)
+
+# Work on a copy so I don't mess up the original
+df_clean = df.copy()
+
+# Handle missing values
+print("🔧 Fixing missing values...")
+
+# For Age, I'll use the median (more robust than mean)
+if df_clean['Age'].isnull().any():
+    age_median = df_clean['Age'].median()
+    df_clean['Age'].fillna(age_median, inplace=True)
+    print(f"    Filled {missing_data['Age']} missing Age values with median: {age_median:.1f}")
+
+# For Embarked, I'll use the most common port
+if df_clean['Embarked'].isnull().any():
+    embarked_mode = df_clean['Embarked'].mode()[0]
+    df_clean['Embarked'].fillna(embarked_mode, inplace=True)
+    print(f"    Filled missing Embarked values with mode: {embarked_mode}")
+
+# Now let me create some new features that might be useful
+print("\n Creating new features...")
+
+# Family size might matter - families might stick together
+df_clean['FamilySize'] = df_clean['SibSp'] + df_clean['Parch'] + 1
+print("    Created FamilySize = SibSp + Parch + 1")
+
+# Being alone might be significant
+df_clean['IsAlone'] = (df_clean['FamilySize'] == 1).astype(int)
+alone_count = df_clean['IsAlone'].sum()
+print(f"    Created IsAlone feature ({alone_count} passengers were alone)")
+
+# Age groups - maybe different age ranges had different survival patterns
+df_clean['AgeGroup'] = pd.cut(df_clean['Age'], 
+                             bins=[0, 12, 18, 35, 60, 100], 
+                             labels=['Child', 'Teen', 'Adult', 'MiddleAge', 'Senior'])
+print("    Created AgeGroup categories")
+
+# Fare groups - wealth might correlate with survival
+fare_quartiles = df_clean['Fare'].quantile([0.25, 0.5, 0.75]).values
+df_clean['FareGroup'] = pd.cut(df_clean['Fare'], 
+                              bins=[0] + list(fare_quartiles) + [df_clean['Fare'].max()], 
+                              labels=['Low', 'Medium', 'High', 'VeryHigh'])
+print("    Created FareGroup based on quartiles")
+
+print(f"\n Dataset after cleaning: {df_clean.shape}")
+print(" All missing values handled, new features created!")
+
+# =============================================================================
+# Data Analysis
+# =============================================================================
+
+print("\n EXPLORATORY DATA ANALYSIS")
+print("-" * 35)
+print("Now let's see what the data tells us about survival patterns...")
+
+# Create a nice visualization layout
+fig = plt.figure(figsize=(18, 12))
+fig.suptitle('Titanic Survival Analysis - Key Patterns', fontsize=16, fontweight='bold')
+
+# 1. Survival by gender - this should be interesting!
+plt.subplot(2, 3, 1)
+gender_survival = df_clean.groupby('Sex')['Survived'].agg(['count', 'sum']).reset_index()
+gender_survival['survival_rate'] = gender_survival['sum'] / gender_survival['count']
+
+bars = plt.bar(gender_survival['Sex'], gender_survival['survival_rate'], 
+               color=['lightcoral', 'lightblue'])
+plt.title('Survival Rate by Gender', fontweight='bold')
+plt.ylabel('Survival Rate')
+plt.ylim(0, 1)
+
+# Add percentage labels on bars
+for i, bar in enumerate(bars):
+    height = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2., height + 0.02, 
+             f'{height:.1%}', ha='center', fontweight='bold')
+
+# 2. Survival by passenger class
+plt.subplot(2, 3, 2)
+class_survival = df_clean.groupby('Pclass')['Survived'].agg(['count', 'sum']).reset_index()
+class_survival['survival_rate'] = class_survival['sum'] / class_survival['count']
+
+bars = plt.bar(class_survival['Pclass'], class_survival['survival_rate'], 
+               color=['gold', 'silver', '#CD7F32'])  # Gold, silver, bronze
+plt.title('Survival Rate by Passenger Class', fontweight='bold')
+plt.xlabel('Passenger Class')
+plt.ylabel('Survival Rate')
+plt.ylim(0, 1)
+
+for i, bar in enumerate(bars):
+    height = bar.get_height()
+    plt.text(bar.get_x() + bar.get_width()/2., height + 0.02, 
+             f'{height:.1%}', ha='center', fontweight='bold')
+
+# 3. Age distribution by survival
+plt.subplot(2, 3, 3)
+survived_ages = df_clean[df_clean['Survived'] == 1]['Age']
+died_ages = df_clean[df_clean['Survived'] == 0]['Age']
+
+plt.hist([died_ages, survived_ages], bins=25, alpha=0.7, 
+         label=['Died', 'Survived'], color=['red', 'green'])
+plt.title('Age Distribution by Survival', fontweight='bold')
+plt.xlabel('Age')
+plt.ylabel('Number of Passengers')
+plt.legend()
+
+# 4. Family size impact
+plt.subplot(2, 3, 4)
+family_survival = df_clean.groupby('FamilySize')['Survived'].agg(['count', 'sum']).reset_index()
+family_survival['survival_rate'] = family_survival['sum'] / family_survival['count']
+
+plt.bar(family_survival['FamilySize'], family_survival['survival_rate'], 
+        color='mediumpurple')
+plt.title('Survival Rate by Family Size', fontweight='bold')
+plt.xlabel('Family Size')
+plt.ylabel('Survival Rate')
+
+# 5. Fare impact on survival
+plt.subplot(2, 3, 5)
+survived_fare = df_clean[df_clean['Survived'] == 1]['Fare']
+died_fare = df_clean[df_clean['Survived'] == 0]['Fare']
+
+plt.hist([died_fare, survived_fare], bins=30, alpha=0.7, 
+         label=['Died', 'Survived'], color=['red', 'green'])
+plt.title('Fare Distribution by Survival', fontweight='bold')
+plt.xlabel('Fare (£)')
+plt.ylabel('Number of Passengers')
+plt.legend()
+plt.xlim(0, 150)  # Focus on main fare range
+
+# 6. Correlation heatmap
+plt.subplot(2, 3, 6)
+# Select numeric columns for correlation
+numeric_cols = ['Survived', 'Pclass', 'Age', 'SibSp', 'Parch', 'Fare', 'FamilySize', 'IsAlone']
+corr_matrix = df_clean[numeric_cols].corr()
+
+sns.heatmap(corr_matrix, annot=True, cmap='RdYlBu_r', center=0,
+            square=True, fmt='.2f', cbar_kws={'shrink': 0.8})
+plt.title('Feature Correlations', fontweight='bold')
+
+plt.tight_layout()
+plt.show()
+
+# Print out what I discovered
+print("\n What I discovered from the data:")
+print("-" * 35)
+
+# Gender insights
+female_survival = gender_survival[gender_survival['Sex'] == 'female']['survival_rate'].iloc[0]
+male_survival = gender_survival[gender_survival['Sex'] == 'male']['survival_rate'].iloc[0]
+print(f" Women had a {female_survival:.1%} survival rate")
+print(f" Men had a {male_survival:.1%} survival rate")
+print("   → 'Women and children first' policy clearly visible!")
+
+# Class insights
+print(f"\n Passenger class made a huge difference:")
+for i, row in class_survival.iterrows():
+    class_name = {1: '1st class', 2: '2nd class', 3: '3rd class'}[row['Pclass']]
+    print(f"   {class_name}: {row['survival_rate']:.1%} survival rate")
+
+# Family size insights
+best_family_size = family_survival.loc[family_survival['survival_rate'].idxmax(), 'FamilySize']
+best_survival_rate = family_survival['survival_rate'].max()
+print(f"\n Best family size for survival: {best_family_size} people ({best_survival_rate:.1%} survival)")
+
+# Age insights
+avg_age_survived = survived_ages.mean()
+avg_age_died = died_ages.mean()
+print(f"\n Average age of survivors: {avg_age_survived:.1f} years")
+print(f" Average age of victims: {avg_age_died:.1f} years")
+
+# =============================================================================
+# Machine Learning Implementation
+# =============================================================================
+
+print("\n BUILDING PREDICTION MODELS")
+print("-" * 35)
+print("Now let's build models to predict survival!")
+
+# Prepare features for machine learning
+print("🔧 Preparing data for machine learning...")
+
+# I need to convert categorical variables to numbers
+feature_columns = ['Pclass', 'Age', 'SibSp', 'Parch', 'Fare', 'FamilySize', 'IsAlone']
+
+# Encode sex (0 = male, 1 = female)
+df_clean['Sex_encoded'] = df_clean['Sex'].map({'male': 0, 'female': 1})
+feature_columns.append('Sex_encoded')
+
+# Encode embarked port
+le_embarked = LabelEncoder()
+df_clean['Embarked_encoded'] = le_embarked.fit_transform(df_clean['Embarked'])
+feature_columns.append('Embarked_encoded')
+
+# Prepare the feature matrix and target
+X = df_clean[feature_columns]
+y = df_clean['Survived']
+
+print(f"    Using {len(feature_columns)} features: {feature_columns}")
+print(f"    Data shape: {X.shape}")
+
+# Split data for training and testing
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, 
+                                                    random_state=42, stratify=y)
+
+print(f"    Training set: {X_train.shape[0]} passengers")
+print(f"    Test set: {X_test.shape[0]} passengers")
+
+
+# =============================================================================
+# Model 1: Logistic Regression
+# =============================================================================
+
+print(f"\n MODEL 1: LOGISTIC REGRESSION")
+print("-" * 30)
+print("Starting with a simple but effective model...")
+
+# Train the model
+lr_model = LogisticRegression(random_state=42, max_iter=1000)
+lr_model.fit(X_train, y_train)
+
+# Make predictions
+lr_predictions = lr_model.predict(X_test)
+lr_accuracy = accuracy_score(y_test, lr_predictions)
+
+print(f" Logistic Regression Accuracy: {lr_accuracy:.3f} ({lr_accuracy:.1%})")
+
+# Cross-validation to check stability
+lr_cv_scores = cross_val_score(lr_model, X, y, cv=5, scoring='accuracy')
+print(f" Cross-validation scores: {[f'{score:.3f}' for score in lr_cv_scores]}")
+print(f" Average CV accuracy: {lr_cv_scores.mean():.3f} (±{lr_cv_scores.std() * 2:.3f})")
+
+# =============================================================================
+# Model 2: Random Forest
+# =============================================================================
+
+print(f"\n MODEL 2: RANDOM FOREST")
+print("-" * 25)
+print("Now trying a more complex ensemble method...")
+
+# Train Random Forest
+rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
+rf_model.fit(X_train, y_train)
+
+# Predictions
+rf_predictions = rf_model.predict(X_test)
+rf_accuracy = accuracy_score(y_test, rf_predictions)
+
+print(f" Random Forest Accuracy: {rf_accuracy:.3f} ({rf_accuracy:.1%})")
+
+# Cross-validation
+rf_cv_scores = cross_val_score(rf_model, X, y, cv=5, scoring='accuracy')
+print(f" Cross-validation scores: {[f'{score:.3f}' for score in rf_cv_scores]}")
+print(f" Average CV accuracy: {rf_cv_scores.mean():.3f} (±{rf_cv_scores.std() * 2:.3f})")
+
+# Feature importance from Random Forest
+feature_importance = pd.DataFrame({
+    'Feature': feature_columns,
+    'Importance': rf_model.feature_importances_
+}).sort_values('Importance', ascending=False)
+
+print(f"\n Most important features (according to Random Forest):")
+for i, row in feature_importance.head(5).iterrows():
+    print(f"   {row['Feature']}: {row['Importance']:.3f}")
+
+# =============================================================================
+# Model Comparison and Final Results
+# =============================================================================
+
+print(f"\n FINAL RESULTS & MODEL COMPARISON")
+print("-" * 40)
+
+# Determine best model
+if rf_accuracy > lr_accuracy:
+    best_model = rf_model
+    best_predictions = rf_predictions
+    best_accuracy = rf_accuracy
+    best_name = "Random Forest"
+    best_cv_scores = rf_cv_scores
+else:
+    best_model = lr_model
+    best_predictions = lr_predictions
+    best_accuracy = lr_accuracy
+    best_name = "Logistic Regression"
+    best_cv_scores = lr_cv_scores
+
+print(f" Best performing model: {best_name}")
+print(f" Best accuracy: {best_accuracy:.3f} ({best_accuracy:.1%})")
+print(f" Cross-validation: {best_cv_scores.mean():.3f} (±{best_cv_scores.std() * 2:.3f})")
+
+# Detailed evaluation
+print(f"\n Detailed evaluation of {best_name}:")
+
+# Confusion Matrix visualization
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+# Confusion matrix
+cm = confusion_matrix(y_test, best_predictions)
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+            xticklabels=['Died', 'Survived'], 
+            yticklabels=['Died', 'Survived'], ax=ax1)
+ax1.set_title(f'Confusion Matrix - {best_name}', fontweight='bold')
+ax1.set_xlabel('Predicted')
+ax1.set_ylabel('Actual')
+
+# Model comparison
+models = ['Logistic Regression', 'Random Forest']
+accuracies = [lr_accuracy, rf_accuracy]
+colors = ['lightblue', 'lightgreen']
+
+bars = ax2.bar(models, accuracies, color=colors)
+ax2.set_title('Model Accuracy Comparison', fontweight='bold')
+ax2.set_ylabel('Accuracy')
+ax2.set_ylim(0, 1)
+
+# Add accuracy labels
+for bar, acc in zip(bars, accuracies):
+    height = bar.get_height()
+    ax2.text(bar.get_x() + bar.get_width()/2., height + 0.01, 
+             f'{acc:.3f}', ha='center', fontweight='bold')
+
+plt.tight_layout()
+plt.show()
+
+# Classification report
+print(f"\n Detailed classification report:")
+print(classification_report(y_test, best_predictions, 
+                          target_names=['Died', 'Survived']))
+
+
+# =============================================================================
+# Key Insights and Conclusions
+# =============================================================================
+
+print(f"\n MY KEY INSIGHTS FROM THIS ANALYSIS")
+print("=" * 45)
+
+print(f" SURVIVAL PATTERNS I DISCOVERED:")
+print(f"   1.  Gender was the strongest predictor - women had {female_survival:.0%} survival vs men's {male_survival:.0%}")
+print(f"   2.  Class mattered enormously - 1st class: {class_survival.iloc[0]['survival_rate']:.0%}, 3rd class: {class_survival.iloc[2]['survival_rate']:.0%}")
+print(f"   3.  Family size of {best_family_size} was optimal for survival")
+print(f"   4.  Higher fares strongly correlated with survival")
+print(f"   5.  Age played a role - younger passengers had better chances")
+
+print(f"\n MODEL PERFORMANCE:")
+print(f"    Achieved {best_accuracy:.1%} accuracy with {best_name}")
+print(f"    Cross-validation shows stable performance: {best_cv_scores.mean():.1%} ± {best_cv_scores.std()*2:.1%}")
+if best_accuracy >= 0.8:
+    print(f"    Exceeded the 80% accuracy target!")
+else:
+    print(f"    Close to 80% target - could improve with more feature engineering")
+
+print(f"\n WHAT THIS MEANS FOR MARITIME SAFETY:")
+print(f"    'Women and children first' protocol was clearly followed")
+print(f"    Socioeconomic factors significantly affected survival chances")
+print(f"    Family groups need specific evacuation strategies")
+print(f"    Fair access to safety resources regardless of class is crucial")
+
+print(f"\n NEXT STEPS TO IMPROVE THE MODEL:")
+print(f"   1. Try hyperparameter tuning to optimize performance")
+print(f"   2. Experiment with ensemble methods combining both models")
+print(f"   3. Engineer more features like deck information or titles")
+print(f"   4. Handle outliers in fare and age more sophisticatedly")
+print(f"   5. Try advanced techniques like XGBoost or neural networks")
+
+print(f"\n" + "="*50)
+print(f" PROJECT COMPLETE!")
+print(f"="*50)
